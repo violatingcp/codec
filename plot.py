@@ -141,7 +141,7 @@ def plotAxes(iAxis,iXaxis,iYaxis,iLabels):
     iAxis.set_ylabel("latent-y")
 
 
-def plotAll(scores_out,labels_out,mass_out,space_out,theta,mass,labels,icut1,icut2):
+def plotAll(scores_out,labels_out,theta_out,mass_out,space_out,theta,mass,labels,icut1,icut2,inspace=2):
     figure, axis = plt.subplots(2, 3,figsize=(20,5))
     plotCorr(axis[0,0],scores_out,labels_out,mass_out,icut1)
     plotCorr(axis[0,1],scores_out,labels_out,mass_out,icut2,True)
@@ -150,9 +150,11 @@ def plotAll(scores_out,labels_out,mass_out,space_out,theta,mass,labels,icut1,icu
     axis[0,2].hist(scores_out[(labels_out==0) ],alpha=0.5,bins=bins,density=True)
     axis[0,2].hist(scores_out[(labels_out==1) ],alpha=0.5,bins=bins,density=True)
 
-    space_out2 = np.reshape(space_out,(len(space_out)//2,2))
+    space_out2 = np.reshape(space_out,(len(space_out)//inspace,inspace))
     mass_out   = np.reshape(mass_out ,(len(mass_out),1) )
+    theta_out  = np.reshape(theta_out,(len(theta_out),1) )
     space_out_mass = np.append(space_out2,mass_out,axis=1)
+    space_out_mass = np.append(space_out_mass,theta_out,axis=1)
     plotAxes(axis[1,0],space_out2[:,0],space_out2[:,1],labels_out)
     plotAxes(axis[1,1],mass_out,       space_out2[:,0],labels_out)
     plotAxes(axis[1,2],mass_out,       space_out2[:,1],labels_out)
@@ -202,7 +204,11 @@ def plotAll(scores_out,labels_out,mass_out,space_out,theta,mass,labels,icut1,icu
     axis[2].set_ylabel("JSD(bkg)")
     axis[2].legend()
     plt.show()
-    
-    figure = corner.corner(space_out_mass[labels_out==0],labels=[r"$x$",r"$y$",r"$m$"],quantiles=[0.16, 0.5, 0.84],show_titles=True,title_kwargs={"fontsize": 12},color='green')
+    arrs=[r"$x$",r"$y$"]
+    for i0 in range(inspace-len(arrs)):
+        arrs.append("var"+str(i0))
+    arrs.append(r"$m$")
+    arrs.append(r"$\theta$")
+    figure = corner.corner(space_out_mass[labels_out==0],labels=arrs,quantiles=[0.16, 0.5, 0.84],show_titles=True,title_kwargs={"fontsize": 12},color='green')
     corner.corner(space_out_mass[labels_out==1], fig=figure,color='orange')
     plt.show()

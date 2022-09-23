@@ -198,6 +198,14 @@ class codec_model():
         self.sig_train, self.sig_test = random_split(dataset_sig,[int(0.8*len(dataset_sig)),len(dataset_sig)-int(0.8*len(dataset_sig))])
         self.bkg_train, self.bkg_test = random_split(dataset_bkg,[int(0.8*len(dataset_bkg)),len(dataset_bkg)-int(0.8*len(dataset_bkg))])
 
+    def update_loss(self, n_epochs=20,iCorr=1,cor_nspace=[], iCorr1=0, acor_nspace=[], iCorr2=0):
+        self.n_epochs       = n_epochs
+        self.corr_const     = iCorr
+        self.corr_ax_const  = iCorr1
+        self.acorr_ax_const = iCorr2
+        self.cor_nspace     = cor_nspace
+        self.acor_nspace    = acor_nspace
+
     def forward(self, x):
         x = self.model1(x)        
         return x
@@ -227,7 +235,7 @@ class codec_model():
         train_loader1,train_loader2 = self.train_dataloader()
         x1=None; m1=None
         updates=0
-        for batch_idx, ((xp, _ , mp) , (xn, _ , mn))  in enumerate(zip(train_loader1,train_loader2)):
+        for batch_idx, ((xp, _ , mp, _) , (xn, _ , mn, _))  in enumerate(zip(train_loader1,train_loader2)):
             xp=xp.cuda(); xn=xn.cuda(); mp=mp.cuda(); mn=mn.cuda()
             _,indp = torch.sort(mp.flatten())
             _,indn = torch.sort(mn.flatten())
@@ -252,7 +260,7 @@ class codec_model():
         x1=None
         m1=None
         updates=0
-        for batch_idx, ((xp, _ , mp) , (xn, _ , mn))  in enumerate(zip(val_loader1,val_loader2)):
+        for batch_idx, ((xp, _ , mp, _) , (xn, _ , mn, _))  in enumerate(zip(val_loader1,val_loader2)):
             xp=xp.cuda(); xn=xn.cuda(); mp=mp.cuda(); mn=mn.cuda()
             _,indp = torch.sort(mp.flatten())
             _,indn = torch.sort(mn.flatten())
@@ -271,7 +279,7 @@ class codec_model():
         running_loss = 0.0
         train_loader = iloader
         updates=0
-        for batch_idx, (x, y , _) in enumerate(train_loader):
+        for batch_idx, (x, y , _, _) in enumerate(train_loader):
             iopt.zero_grad()
             x     = x.cuda(); y = y.cuda()
             x_out = imodel(x)
@@ -286,7 +294,7 @@ class codec_model():
         running_loss = 0.0
         val_loader   = iloader
         updates=0
-        for batch_idx, (x, y, _)   in enumerate(val_loader):
+        for batch_idx, (x, y, _, _)   in enumerate(val_loader):
             x     = x.cuda(); y = y.cuda()
             x_out = imodel(x) 
             loss  = self.mse_loss(x_out, y)
@@ -299,16 +307,18 @@ class codec_model():
         scores_out = np.array([])
         labels_out = np.array([])
         mass_out   = np.array([])
+        theta_out   = np.array([])
         space_out  = np.array([])
-        for batch_idx, (x, y, m)   in enumerate(test_loader):
+        for batch_idx, (x, y, m, t)   in enumerate(test_loader):
             x = x.cuda() 
             x1_out = self.model1(x) 
             x2_out = self.model2(x1_out) 
             scores_out = np.append(scores_out,x2_out.cpu().detach().numpy())
             labels_out = np.append(labels_out,y)
             mass_out   = np.append(mass_out,m)
+            theta_out  = np.append(theta_out,t)
             space_out  = np.append(space_out,x1_out.cpu().detach().numpy())
-        return scores_out,labels_out,mass_out,space_out
+        return scores_out,labels_out,mass_out,theta_out,space_out
 
     def test_base(self):
         test_loader   = self.test_dataloader()
@@ -356,10 +366,10 @@ class codec_model():
     def setup_mse(self, stage=None):
         train_loader1,train_loader2 = self.fulltrain_dataloader()
         with torch.no_grad():
-            for batch_idx, (xsig, ysig, msig)   in enumerate(train_loader1):
+            for batch_idx, (xsig, ysig, msig, tsig )   in enumerate(train_loader1):
                 xsig = xsig.cuda()
                 sig_train_mse_out = self.model1(xsig)
-            for batch_idx, (xbkg, ybkg, mbkg)   in enumerate(train_loader2):
+            for batch_idx, (xbkg, ybkg, mbkg, tbkg )   in enumerate(train_loader2):
                 xbkg = xbkg.cuda()
                 bkg_train_mse_out = self.model1(xbkg)
             train_mse_out     = torch.cat((sig_train_mse_out.cpu(),bkg_train_mse_out.cpu()))
@@ -406,27 +416,28 @@ class codec_model():
         self.training_clr()
         self.setup_mse()
         self.training_mse()
-        scores_out,labels_out,mass_out,space_out = self.test_all()
-        mask = (mass_out > 70) & (mass_out < 90)
+        scores_out,labels_out,mass_out,theta_out,space_out = self.test_all()
+        mask = (mass_out > -70) & (mass_out < 900)
         auc = roc_auc_score(y_score=scores_out[mask], y_true=labels_out[mask])
         print("AUC",auc)
-        return scores_out,labels_out,mass_out,space_out
+        return scores_out,labels_out,mass_out,theta_out,space_out
 
     def run_base(self):
         self.setup()
         self.setup_mse()
         self.training_base_mse()
         scores_out,labels_out,mass_out = self.test_base()
-        mask = (mass_out > 70) & (mass_out < 90)
+        mask = (mass_out > -70) & (mass_out < 900)
         auc = roc_auc_score(y_score=scores_out[mask], y_true=labels_out[mask])
         print("AUC",auc)
         return scores_out,labels_out,mass_out
 
 class DataSet(Dataset):
-    def __init__(self, samples, labels, masses):
+    def __init__(self, samples, labels, masses,theta=None):
         self.labels  = labels
         self.samples = samples
         self.masses  = masses
+        self.theta   = theta
         if len(samples) != len(labels):
             raise ValueError(
                 f"should have the same number of samples({len(samples)}) as there are labels({len(labels)})")
@@ -438,7 +449,11 @@ class DataSet(Dataset):
         y = self.labels[index]
         m = self.masses[index]
         x = self.samples[index]
-        return x, y, m
+        if self.theta is None: 
+            t=0
+        else:
+            t = self.theta[index]
+        return x, y, m, t
 
 
 class RandomBatchSampler(Sampler):
@@ -495,6 +510,10 @@ def prepPartDataset(imasscut=0):
     prong2  = load('2prong_floatP_flat_32p_parts').astype("float32")
     mass1   = load('1prong_floatP_flat_32p_mass').astype("float32")
     mass2   = load('2prong_floatP_flat_32p_mass').astype("float32")
+    theta1  = load('1prong_floatP_flat_32p_theta').astype("float32")
+    theta2  = load('2prong_floatP_flat_32p_theta').astype("float32")
+    theta1  = np.reshape(theta1[:,0],(len(theta1),1))
+    theta2  = np.reshape(theta2[:,0],(len(theta2),1))
     mass1   = np.reshape(mass1[:,0],(len(mass1),1))
     mass2   = np.reshape(mass2[:,0],(len(mass2),1))
     #cuts1   = mass1[:].flatten() > imasscut
@@ -515,8 +534,8 @@ def prepPartDataset(imasscut=0):
     labels2 = np.reshape(labels2,(len(labels2),1))
     prong1  = (prong1 - data.mean(axis=0))/data.std(axis=0)
     prong2  = (prong2 - data.mean(axis=0))/data.std(axis=0)
-    output1 = DataSet(samples=prong1,labels=labels1,masses=mass1)
-    output2 = DataSet(samples=prong2,labels=labels2,masses=mass2)
+    output1 = DataSet(samples=prong1,labels=labels1,masses=mass1,theta=theta1)
+    output2 = DataSet(samples=prong2,labels=labels2,masses=mass2,theta=theta2)
     size    = prong1.shape[1]
     return output1,output2,size
 
@@ -541,7 +560,7 @@ def prepParetoDataset(imasscut=0):
     labels  = np.concatenate([np.ones(len(prong1)), np.zeros(len(prong2))]).astype("float32")
     labels  = np.reshape(labels,(len(labels),1))
     #data    = (data - data.mean(axis=0))/data.std(axis=0)
-    output  = DataSet(samples=data,labels=labels,masses=mass)
+    output  = DataSet(samples=data,labels=labels,masses=mass, theta=data)
     size    = prong1.shape[1]
     return output,size
 
